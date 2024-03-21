@@ -12,7 +12,6 @@ from tensorflow.keras import optimizers
 from kerastuner import HyperModel
 from keras_tuner import HyperModel
 from keras_tuner.tuners import Hyperband
-from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
 
@@ -22,15 +21,21 @@ class GRUHyperModel(HyperModel):
 
     def build(self, hp):
         model = Sequential()
-        model.add(GRU(units=hp.Int('units', min_value=32, max_value=512, step=32),
+        # First GRU layer with units_first_layer
+        model.add(GRU(units=hp.Int('units_first_layer', min_value=32, max_value=512, step=32),
                       return_sequences=True,
                       input_shape=self.input_shape))
         model.add(Dropout(rate=hp.Float('dropout_1', min_value=0.0, max_value=0.5, step=0.1)))
-        model.add(GRU(units=hp.Int('units', min_value=32, max_value=512, step=32)))
+        
+        # Second GRU layer with units_second_layer
+        model.add(GRU(units=hp.Int('units_second_layer', min_value=32, max_value=512, step=32)))
         model.add(Dropout(rate=hp.Float('dropout_2', min_value=0.0, max_value=0.5, step=0.1)))
+        
         model.add(Dense(1))
         
-        model.compile(optimizer='adam', loss='mean_squared_error')
+        # Compile the model with a hyperparameter choice for the learning rate
+        model.compile(optimizer=optimizers.Adam(hp.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4])),
+                      loss='mean_squared_error')
         return model
     
 class BiGRUHyperModel(HyperModel):
@@ -65,19 +70,22 @@ class LSTMTuner(HyperModel):
 
     def build(self, hp):
         model = Sequential()
-        # First LSTM layer
-        model.add(LSTM(units=hp.Int('units', min_value=32, max_value=512, step=32),
+        # First LSTM layer with units_first_layer
+        model.add(LSTM(units=hp.Int('units_first_layer', min_value=32, max_value=512, step=32),
                        return_sequences=True,
                        input_shape=self.input_shape))
         model.add(Dropout(rate=hp.Float('dropout_1', min_value=0, max_value=0.5, step=0.1)))
         
-        # Additional LSTM layer
-        model.add(LSTM(units=hp.Int('units', min_value=32, max_value=512, step=32), return_sequences=False))
+        # Second LSTM layer with units_second_layer
+        model.add(LSTM(units=hp.Int('units_second_layer', min_value=32, max_value=512, step=32), return_sequences=False))
         model.add(Dropout(rate=hp.Float('dropout_2', min_value=0, max_value=0.5, step=0.1)))
         
         # Output layer
         model.add(Dense(1))
-        model.compile(optimizer='adam', loss='mean_squared_error')
+        
+        # Compile the model with a hyperparameter choice for the learning rate
+        model.compile(optimizer=optimizers.Adam(hp.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4])),
+                      loss='mean_squared_error')
         return model
 
 def prepare_data(df, features, target, train_percent, val_percent):
@@ -112,7 +120,6 @@ def prepare_data(df, features, target, train_percent, val_percent):
     return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled
 
 def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_percent):
-
     X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
@@ -126,25 +133,27 @@ def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_pe
     )
 
     tuner.search(X_train_scaled, y_train_scaled, epochs=20, validation_data=(X_val_scaled, y_val_scaled))
-
-    # Save the tuning results to a file
+    
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-    model_metrics = {
-        'units': best_hps.get('units'),
-        'dropout_1': best_hps.get('dropout_1'),
-        'dropout_2': best_hps.get('dropout_2')
-    }
+    best_trial = tuner.oracle.get_best_trials(num_trials=1)[0]
+    best_val_loss = best_trial.score
 
+    model_metrics = {
+        'units_first_layer' : best_hps.get('units_first_layer'),
+        'units_second_layer': best_hps.get('units_second_layer'),
+        'dropout_1': best_hps.get('dropout_1'),
+        'dropout_2': best_hps.get('dropout_2'),
+        'learning_rate': best_hps.get('learning_rate'),
+        'best_val_loss': best_val_loss
+    }
     with open('model_hyperparameter_tuning_GRU.txt', 'w') as f:
-        json.dump(model_metrics, f)
+        json.dump(model_metrics, f, indent=4)
 
 def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_percent):
-    # Assuming prepare_data is a function that correctly splits and scales your data
-    X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
+    X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
 
-    # Assuming BiGRUHyperModel is already defined and imported
     tuner = Hyperband(
         BiGRUHyperModel(input_shape),
         objective='val_loss',
@@ -155,19 +164,19 @@ def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_
 
     tuner.search(X_train_scaled, y_train_scaled, epochs=20, validation_data=(X_val_scaled, y_val_scaled), verbose=1)
 
-    # Extract the best hyperparameters
+    # Get the best set of hyperparameters
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-    
-    # Extract and save the best hyperparameters
+    best_trial = tuner.oracle.get_best_trials(num_trials=1)[0]
+    best_val_loss = best_trial.score
+
     best_hyperparameters = {
         'Best Units (First Layer)': best_hps.get('units_first_layer'),
         'Best Dropout (First Layer)': best_hps.get('dropout_1'),
         'Best Units (Second Layer)': best_hps.get('units_second_layer'),
         'Best Dropout (Second Layer)': best_hps.get('dropout_2'),
-        'Best Learning Rate': best_hps.get('learning_rate')
+        'Best Learning Rate': best_hps.get('learning_rate'),
+        'Lowest Validation MSE Score': best_val_loss
     }
-
-    # Save the tuning results to a text file
     with open('bidirectional_GRU_hyperparameter_tuning_results.txt', 'w') as file:
         for key, value in best_hyperparameters.items():
             file.write(f"{key}: {value}\n")
@@ -179,7 +188,7 @@ def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_p
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
 
     tuner = Hyperband(
-        hypermodel=LSTMTuner(input_shape=input_shape),
+        LSTMTuner(input_shape=input_shape),
         objective='val_loss',
         max_epochs=20,
         directory='hyperband_lstm_tuning',
@@ -188,17 +197,25 @@ def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_p
 
     tuner.search(X_train_scaled, y_train_scaled, epochs=20, validation_data=(X_val_scaled, y_val_scaled))
 
-    # Save the tuning results to a file
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+    best_trial = tuner.oracle.get_best_trials(num_trials=1)[0]
+    best_val_loss = best_trial.score
 
+    best_hyperparameters_info = {
+        'Best Units (First Layer)': best_hps.get('units_first_layer'),
+        'Best Dropout (First Layer)': best_hps.get('dropout_1'),
+        'Best Units (Second Layer)': best_hps.get('units_second_layer'),
+        'Best Dropout (Second Layer)': best_hps.get('dropout_2'),
+        'Best Learning Rate': best_hps.get('learning_rate'),
+        'Lowest Validation MSE Score': best_val_loss
+    }
     with open('model_hyperparameter_tuning_LSTM.txt', "w") as f:
-        f.write(f"Best LSTM units: {best_hps.get('units')}\n")
-        f.write(f"Best dropout_1 rate: {best_hps.get('dropout_1')}\n")
-        f.write(f"Best dropout_2 rate: {best_hps.get('dropout_2')}\n")
+        for key, value in best_hyperparameters_info.items():
+            f.write(f"{key}: {value}\n")
 
 
 # List of cryptocurrencies
-cryptos = ['bitcoin', 'litecoin', 'ethereum', 'monero', 'xrp']
+cryptos = ['bitcoin', 'litecoin', 'ethereum', 'xrp']
 
 # Dictionary to store the dataframes
 dfs = {}
@@ -222,91 +239,88 @@ for crypto in cryptos:
     print("\n")
     """""
 
-# We need to add more features to the model to improve its accuracy
-# Assuming dfs['raw_bitcoin_pd'] is your DataFrame for Bitcoin
 df_bitcoin_2 = dfs['raw_bitcoin_pd'].copy()
-
-# Calculate Moving Averages
 df_bitcoin_2['SMA_50']  = df_bitcoin_2['Close'].rolling(window=50).mean()
 df_bitcoin_2['SMA_200'] = df_bitcoin_2['Close'].rolling(window=200).mean()
-
-# Calculate Exponential Moving Averages
 df_bitcoin_2['EMA_50'] = df_bitcoin_2['Close'].ewm(span=50, adjust=False).mean()
 df_bitcoin_2['EMA_200'] = df_bitcoin_2['Close'].ewm(span=200, adjust=False).mean()
-
-# Calculate MACD
-# MACD Line = 12-day EMA - 26-day EMA
-# Signal Line = 9-day EMA of MACD Line
-# MACD Histogram = MACD Line - Signal Line
 EMA_12 = df_bitcoin_2['Close'].ewm(span=12, adjust=False).mean()
 EMA_26 = df_bitcoin_2['Close'].ewm(span=26, adjust=False).mean()
 df_bitcoin_2['MACD'] = EMA_12 - EMA_26
 df_bitcoin_2['Signal_Line']    = df_bitcoin_2['MACD'].ewm(span=9, adjust=False).mean()
-
-# Calculate RSI
 delta = df_bitcoin_2['Close'].diff(1)
 gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
 RS = gain / loss
 df_bitcoin_2['RSI'] = 100 - (100 / (1 + RS))
-
-# Calculate Volatility (as the standard deviation of daily returns)
-#df_bitcoin_2['Daily_Return'] = df_bitcoin_2['Close'].pct_change()
 df_bitcoin_2['Volatility']   = df_bitcoin_2['Close'].pct_change().rolling(window=50).std() * np.sqrt(50)
-
-# If today's close is higher than yesterday's close, price direction is 1 (up), otherwise 0 (down or unchanged)
 df_bitcoin_2['Price_Direction'] = (df_bitcoin_2['Close'] > df_bitcoin_2['Close'].shift(1)).astype(int)
-
-# Display the head of the DataFrame to verify the new columns
 print(df_bitcoin_2.iloc[199:205])
 
-
-# Calculate the correlation matrix
-correlation_matrix = df_bitcoin_2.corr()
-
-# Focus on the 'High' and 'Low' columns
-correlation_with_target = correlation_matrix[['Close']].sort_values(by='Close', ascending=False)
-plt.figure(figsize=(10, 8))
-sns.heatmap(correlation_matrix, annot=True, fmt=".2f", cmap='coolwarm')
-#plt.show()
-# Print the correlation values
-print(correlation_with_target)
 
 # Print the percentage for bitcoin price direction
 counts = df_bitcoin_2['Price_Direction'].value_counts()
 percentages = counts / len(df_bitcoin_2) * 100
 print(f"\nPercentages:\n {percentages}")
 
-def feature_importance_verifier(feature):
-    # Assuming you're predicting the 'High' price. Adjust as necessary for 'Low'
-    X = df_bitcoin_2.drop(['High', 'Low', 'Date', 'Currency', 'Open', 'Close'], axis=1).fillna(0)  # Example feature matrix
-    y = df_bitcoin_2[feature].fillna(0)  # Example target variable
-
-    # Initialize and train the random forest
-    rf = RandomForestRegressor(n_estimators=100, random_state=42)
-    rf.fit(X, y)
-
-    # Extract feature importance
-    importances = rf.feature_importances_
-    indices = np.argsort(importances)[::-1]
-
-    # Print the feature ranking
-    print(f"Feature ranking for {feature}:")
-    for f in range(X.shape[1]):
-        print(f"{f + 1}. feature {X.columns[indices[f]]} ({importances[indices[f]]})")
-
-
-#feature_importance_verifier('Close')
 initial_row_count = len(df_bitcoin_2)
 df_bitcoin_2_clean = df_bitcoin_2.dropna()
+print(df_bitcoin_2_clean.count())
 rows_removed = initial_row_count - len(df_bitcoin_2_clean)
-#print(f"Number of rows removed: {rows_removed}")
+print(f"Number of rows removed: {rows_removed}")
 
 
 features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
 target = 'Close'
 train_split      = 0.80
 validation_split = 0.10
-find_and_save_hyperparameter_GRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
-find_and_save_hyperparameter_LSTM(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
-find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
+
+#find_and_save_hyperparameter_GRU(  df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
+#find_and_save_hyperparameter_LSTM( df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
+#find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
+
+
+#----------------------------------Check with new features from Ethereum, Litecoin, and XRP----------------------------------
+
+df_bitcoin_features = df_bitcoin_2_clean.copy()
+df_bitcoin_features = df_bitcoin_features.drop(['Currency', 'Open', 'High', 'Low'], axis=1)
+df_bitcoin_features = df_bitcoin_features.rename(columns={'Close': 'bitcoin_Close'})
+cryptos_prices_to_copy = ['litecoin', 'ethereum', 'xrp']
+
+# Convert dates into indexes------------------------------------------------------------
+df_bitcoin_features['Date'] = pd.to_datetime(df_bitcoin_features['Date'])
+df_bitcoin_features.set_index('Date', inplace=True)
+for df in dfs.values():
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+#----------------------------------------------------------------------------------------
+
+latest_start_date = max(df.index.min() for df in [df_bitcoin_features] + [dfs[f'raw_{crypto}_pd'] for crypto in cryptos_prices_to_copy])
+df_bitcoin_features = df_bitcoin_features[df_bitcoin_features.index >= latest_start_date]
+
+for crypto in cryptos_prices_to_copy:
+    # Filter each crypto DataFrame from the latest start date onwards and add 'Close' price to df_bitcoin_features
+    df_bitcoin_features[f'{crypto}_Close'] = dfs[f'raw_{crypto}_pd'].loc[dfs[f'raw_{crypto}_pd'].index >= latest_start_date, 'Close']
+
+print(df_bitcoin_features.count())
+
+
+features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line', 'litecoin_Close', 'ethereum_Close']
+target = 'Close'
+
+
+# Perform hyperparameter tuning using the features from the other cryptocurrencies.
+
+# Insert code here
+
+#---------------------------------------------------------------------------------
+
+features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
+target = 'Close'
+
+# Perform hyperparameter tuning using the features without the other cryptocurrencies on the reduced dataset to compare the 
+# effect of the additional features.
+
+# Insert code here
+
+#---------------------------------------------------------------------------------

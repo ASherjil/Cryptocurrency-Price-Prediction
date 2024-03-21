@@ -1,1 +1,0 @@
-{"units": 224, "dropout_1": 0.4, "dropout_2": 0.0}
