@@ -1,3 +1,3 @@
-Best LSTM units: 448
-Best dropout_1 rate: 0.0
-Best dropout_2 rate: 0.0
+Best LSTM units: 512
+Best dropout_1 rate: 0.4
+Best dropout_2 rate: 0.2

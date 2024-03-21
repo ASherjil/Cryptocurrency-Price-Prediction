@@ -2,19 +2,19 @@
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import tensorflow as tf
+import numpy as np
+import json
 from tensorflow.keras.layers import GRU, Dropout, Dense, LSTM   
 from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Bidirectional, GRU, Dropout, Dense
+from tensorflow.keras import optimizers
+from kerastuner import HyperModel
 from keras_tuner import HyperModel
 from keras_tuner.tuners import Hyperband
-import json
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics  import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from xgboost import XGBClassifier
-import numpy as np
+
 
 class GRUHyperModel(HyperModel):
     def __init__(self, input_shape):
@@ -31,6 +31,32 @@ class GRUHyperModel(HyperModel):
         model.add(Dense(1))
         
         model.compile(optimizer='adam', loss='mean_squared_error')
+        return model
+    
+class BiGRUHyperModel(HyperModel):
+    def __init__(self, input_shape):
+        self.input_shape = input_shape
+
+    def build(self, hp):
+        model = Sequential()
+        
+        # First Bidirectional GRU layer with return_sequences=True since we will add another GRU layer after this
+        model.add(Bidirectional(GRU(units=hp.Int('units_first_layer', min_value=32, max_value=512, step=32),
+                                    return_sequences=True),
+                                input_shape=self.input_shape))
+        model.add(Dropout(rate=hp.Float('dropout_1', min_value=0.0, max_value=0.5, step=0.1)))
+        
+        # Second Bidirectional GRU layer with return_sequences=False, which is the default and doesn't need to be specified
+        model.add(Bidirectional(GRU(units=hp.Int('units_second_layer', min_value=32, max_value=512, step=32))))
+        model.add(Dropout(rate=hp.Float('dropout_2', min_value=0.0, max_value=0.5, step=0.1)))
+        
+        # Output layer
+        model.add(Dense(1))
+        
+        # Compile the model
+        model.compile(optimizer=optimizers.Adam(hp.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4])),
+                      loss='mean_squared_error')
+        
         return model
     
 class LSTMTuner(HyperModel):
@@ -53,8 +79,8 @@ class LSTMTuner(HyperModel):
         model.add(Dense(1))
         model.compile(optimizer='adam', loss='mean_squared_error')
         return model
-    
-def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_percent):
+
+def prepare_data(df, features, target, train_percent, val_percent):
     # Prepare the data
     scaler_X = StandardScaler()
     scaler_y = StandardScaler()
@@ -82,6 +108,12 @@ def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_pe
     y_train_scaled = y_scaled[:train_end]
     X_val_scaled = X_scaled[train_end:val_end]
     y_val_scaled = y_scaled[train_end:val_end]
+
+    return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled
+
+def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_percent):
+
+    X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
 
@@ -106,34 +138,43 @@ def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_pe
     with open('model_hyperparameter_tuning_GRU.txt', 'w') as f:
         json.dump(model_metrics, f)
 
-def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_percent):
-    # Prepare the data
-    scaler_X = StandardScaler()
-    scaler_y = StandardScaler()
+def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_percent):
+    # Assuming prepare_data is a function that correctly splits and scales your data
+    X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
+    input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
+
+    # Assuming BiGRUHyperModel is already defined and imported
+    tuner = Hyperband(
+        BiGRUHyperModel(input_shape),
+        objective='val_loss',
+        max_epochs=20,
+        directory='hyperband_bigru_tuning',
+        project_name='bigru_tuning'
+    )
+
+    tuner.search(X_train_scaled, y_train_scaled, epochs=20, validation_data=(X_val_scaled, y_val_scaled), verbose=1)
+
+    # Extract the best hyperparameters
+    best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
     
-    X = df[features]
-    y = df[[target]]  # Keeping it as DataFrame
-    
-    # Scale features and target
-    X_scaled = scaler_X.fit_transform(X)
-    y_scaled = scaler_y.fit_transform(y)
-    
-    # Reshape for LSTM [samples, time steps, features]
-    X_scaled = X_scaled.reshape((X_scaled.shape[0], 1, X_scaled.shape[1]))
-    
-    # Calculate the number of rows for training and validation
-    total_rows = len(df)
-    train_end = int(total_rows * train_percent)
-    val_end = train_end + int(total_rows * val_percent)
-    
-    # Split data
-    X_train_scaled = X_scaled[:train_end]
-    y_train_scaled = y_scaled[:train_end]
-    X_val_scaled = X_scaled[train_end:val_end]
-    y_val_scaled = y_scaled[train_end:val_end]
+    # Extract and save the best hyperparameters
+    best_hyperparameters = {
+        'Best Units (First Layer)': best_hps.get('units_first_layer'),
+        'Best Dropout (First Layer)': best_hps.get('dropout_1'),
+        'Best Units (Second Layer)': best_hps.get('units_second_layer'),
+        'Best Dropout (Second Layer)': best_hps.get('dropout_2'),
+        'Best Learning Rate': best_hps.get('learning_rate')
+    }
+
+    # Save the tuning results to a text file
+    with open('bidirectional_GRU_hyperparameter_tuning_results.txt', 'w') as file:
+        for key, value in best_hyperparameters.items():
+            file.write(f"{key}: {value}\n")
+
+
+def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_percent):
+    X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
 
@@ -264,7 +305,8 @@ rows_removed = initial_row_count - len(df_bitcoin_2_clean)
 
 features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
 target = 'Close'
-train_split      = 0.70
-validation_split = 0.15
+train_split      = 0.80
+validation_split = 0.10
 find_and_save_hyperparameter_GRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
 find_and_save_hyperparameter_LSTM(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
+find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
