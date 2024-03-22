@@ -1,0 +1,8 @@
+{
+    "units_first_layer": 480,
+    "units_second_layer": 160,
+    "dropout_1": 0.4,
+    "dropout_2": 0.2,
+    "learning_rate": 0.001,
+    "best_val_loss": 0.010405236855149269
+}

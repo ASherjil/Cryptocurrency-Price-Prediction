@@ -1,0 +1,6 @@
+Best Units (First Layer): 352
+Best Dropout (First Layer): 0.2
+Best Units (Second Layer): 224
+Best Dropout (Second Layer): 0.30000000000000004
+Best Learning Rate: 0.001
+Lowest Validation MSE Score: 0.009126498363912106

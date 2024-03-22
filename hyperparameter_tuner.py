@@ -93,8 +93,9 @@ def prepare_data(df, features, target, train_percent, val_percent):
     scaler_X = StandardScaler()
     scaler_y = StandardScaler()
 
-    df['Date'] = pd.to_datetime(df['Date'])
-    df.set_index('Date', inplace=True)
+    if df.index.name != 'Date':
+        df['Date'] = pd.to_datetime(df['Date'])
+        df.set_index('Date', inplace=True)
     
     X = df[features]
     y = df[[target]]  # Keeping it as DataFrame
@@ -119,7 +120,7 @@ def prepare_data(df, features, target, train_percent, val_percent):
 
     return X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled
 
-def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_percent):
+def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_percent, _dir, file_name):
     X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
@@ -128,7 +129,7 @@ def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_pe
         GRUHyperModel(input_shape),
         objective='val_loss',
         max_epochs=20,
-        directory='hyperband_gru_tuning',
+        directory=_dir,
         project_name='gru_tuning'
     )
 
@@ -146,10 +147,10 @@ def find_and_save_hyperparameter_GRU(df, features, target, train_percent, val_pe
         'learning_rate': best_hps.get('learning_rate'),
         'best_val_loss': best_val_loss
     }
-    with open('model_hyperparameter_tuning_GRU.txt', 'w') as f:
+    with open(f'{file_name}.txt', 'w') as f:
         json.dump(model_metrics, f, indent=4)
 
-def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_percent):
+def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_percent, _dir, file_name):
 
     X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
@@ -158,7 +159,7 @@ def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_
         BiGRUHyperModel(input_shape),
         objective='val_loss',
         max_epochs=20,
-        directory='hyperband_bigru_tuning',
+        directory=_dir,
         project_name='bigru_tuning'
     )
 
@@ -177,12 +178,12 @@ def find_and_save_hyperparameter_biGRU(df, features, target, train_percent, val_
         'Best Learning Rate': best_hps.get('learning_rate'),
         'Lowest Validation MSE Score': best_val_loss
     }
-    with open('bidirectional_GRU_hyperparameter_tuning_results.txt', 'w') as file:
+    with open(f'{file_name}.txt', 'w') as file:
         for key, value in best_hyperparameters.items():
             file.write(f"{key}: {value}\n")
 
 
-def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_percent):
+def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_percent, _dir, file_name):
     X_train_scaled, y_train_scaled, X_val_scaled, y_val_scaled = prepare_data(df, features, target, train_percent, val_percent)
 
     input_shape = (X_train_scaled.shape[1], X_train_scaled.shape[2])
@@ -191,7 +192,7 @@ def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_p
         LSTMTuner(input_shape=input_shape),
         objective='val_loss',
         max_epochs=20,
-        directory='hyperband_lstm_tuning',
+        directory=_dir,
         project_name='lstm_tuning'
     )
 
@@ -209,7 +210,7 @@ def find_and_save_hyperparameter_LSTM(df, features, target, train_percent, val_p
         'Best Learning Rate': best_hps.get('learning_rate'),
         'Lowest Validation MSE Score': best_val_loss
     }
-    with open('model_hyperparameter_tuning_LSTM.txt', "w") as f:
+    with open(f'{file_name}.txt', "w") as f:
         for key, value in best_hyperparameters_info.items():
             f.write(f"{key}: {value}\n")
 
@@ -275,11 +276,9 @@ target = 'Close'
 train_split      = 0.80
 validation_split = 0.10
 
-#find_and_save_hyperparameter_GRU(  df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
-#find_and_save_hyperparameter_LSTM( df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
-#find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split)
-
-
+find_and_save_hyperparameter_GRU(  df_bitcoin_2_clean.copy(), features, target, train_split, validation_split, 'gru_dir_1  ', 'gru_1')
+find_and_save_hyperparameter_LSTM( df_bitcoin_2_clean.copy(), features, target, train_split, validation_split, 'lstm_dir_1 ', 'lstm_1')
+find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, train_split, validation_split, 'bigru_dir_1', 'bigru_1')
 #----------------------------------Check with new features from Ethereum, Litecoin, and XRP----------------------------------
 
 df_bitcoin_features = df_bitcoin_2_clean.copy()
@@ -306,21 +305,21 @@ print(df_bitcoin_features.count())
 
 
 features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line', 'litecoin_Close', 'ethereum_Close']
-target = 'Close'
+target   = 'bitcoin_Close'
 
 
 # Perform hyperparameter tuning using the features from the other cryptocurrencies.
-
-# Insert code here
-
+find_and_save_hyperparameter_GRU(  df_bitcoin_features.copy(), features, target, train_split, validation_split, 'gru_dir_2', 'gru_2')
+find_and_save_hyperparameter_LSTM( df_bitcoin_features.copy(), features, target, train_split, validation_split, 'lstm_dir_2', 'lstm_2')
+find_and_save_hyperparameter_biGRU(df_bitcoin_features.copy(), features, target, train_split, validation_split, 'bigru_dir_2', 'bigru_2')
 #---------------------------------------------------------------------------------
 
 features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
-target = 'Close'
+target   = 'bitcoin_Close'
 
 # Perform hyperparameter tuning using the features without the other cryptocurrencies on the reduced dataset to compare the 
 # effect of the additional features.
-
-# Insert code here
-
+find_and_save_hyperparameter_GRU(  df_bitcoin_features.copy(), features, target, train_split, validation_split, 'gru_dir_3', 'gru_3')
+find_and_save_hyperparameter_LSTM( df_bitcoin_features.copy(), features, target, train_split, validation_split, 'lstm_dir_3', 'lstm_3')
+find_and_save_hyperparameter_biGRU(df_bitcoin_features.copy(), features, target, train_split, validation_split, 'bigru_dir_3', 'bigru_3')
 #---------------------------------------------------------------------------------
