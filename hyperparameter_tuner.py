@@ -254,6 +254,7 @@ gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
 loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
 RS = gain / loss
 df_bitcoin_2['RSI'] = 100 - (100 / (1 + RS))
+df_bitcoin_2['Daily_Return'] = df_bitcoin_2['Close'].pct_change()
 df_bitcoin_2['Volatility']   = df_bitcoin_2['Close'].pct_change().rolling(window=50).std() * np.sqrt(50)
 df_bitcoin_2['Price_Direction'] = (df_bitcoin_2['Close'] > df_bitcoin_2['Close'].shift(1)).astype(int)
 print(df_bitcoin_2.iloc[199:205])
@@ -271,7 +272,7 @@ rows_removed = initial_row_count - len(df_bitcoin_2_clean)
 print(f"Number of rows removed: {rows_removed}")
 
 
-features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
+features = ['Low', 'High', 'Open', 'Daily_Return', 'RSI', 'SMA_50']
 target = 'Close'
 train_split      = 0.80
 validation_split = 0.10
@@ -282,7 +283,7 @@ find_and_save_hyperparameter_biGRU(df_bitcoin_2_clean.copy(), features, target, 
 #----------------------------------Check with new features from Ethereum, Litecoin, and XRP----------------------------------
 
 df_bitcoin_features = df_bitcoin_2_clean.copy()
-df_bitcoin_features = df_bitcoin_features.drop(['Currency', 'Open', 'High', 'Low'], axis=1)
+df_bitcoin_features = df_bitcoin_features.drop(['Currency'], axis=1)
 df_bitcoin_features = df_bitcoin_features.rename(columns={'Close': 'bitcoin_Close'})
 cryptos_prices_to_copy = ['litecoin', 'ethereum', 'xrp']
 
@@ -304,7 +305,7 @@ for crypto in cryptos_prices_to_copy:
 print(df_bitcoin_features.count())
 
 
-features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line', 'litecoin_Close', 'ethereum_Close']
+features = ['Low', 'High', 'Open', 'Daily_Return', 'SMA_50', 'ethereum_Close', 'EMA_50', 'litecoin_Close']
 target   = 'bitcoin_Close'
 
 
@@ -314,7 +315,7 @@ find_and_save_hyperparameter_LSTM( df_bitcoin_features.copy(), features, target,
 find_and_save_hyperparameter_biGRU(df_bitcoin_features.copy(), features, target, train_split, validation_split, 'bigru_dir_2', 'bigru_2')
 #---------------------------------------------------------------------------------
 
-features = ['EMA_50', 'EMA_200', 'SMA_200', 'SMA_50', 'MACD', 'Signal_Line']
+features = ['Low', 'High', 'Open', 'Daily_Return', 'SMA_50', 'EMA_50']
 target   = 'bitcoin_Close'
 
 # Perform hyperparameter tuning using the features without the other cryptocurrencies on the reduced dataset to compare the 
